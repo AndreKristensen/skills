@@ -1,0 +1,8 @@
+{
+  "name": "model-decider",
+  "version": "0.2.1",
+  "description": "Picks Haiku, Sonnet or Opus for each piece of work and logs every pick so you can check the picker.",
+  "author": {
+    "name": "Andre Kristensen"
+  }
+}

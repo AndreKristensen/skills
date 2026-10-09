@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# model-decider hook handler. Every hook event in hooks.json runs this script;
+# it dispatches on hook_event_name and appends JSON lines to the log.
+set -euo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+DATA="${MODEL_DECIDER_HOME:-$HOME/.claude/model-decider}"
+LOG="$DATA/log.jsonl"
+STATE_DIR="$DATA/state"
+mkdir -p "$STATE_DIR"
+
+input=$(cat)
+field() { jq -r "$1 // empty" <<<"$input"; }
+
+event=$(field .hook_event_name)
+session=$(field .session_id)
+project=$(field .cwd)
+state="$STATE_DIR/${session:-unknown}.json"
+[ -s "$state" ] || echo '{}' >"$state"
+
+now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+# log '<jq object>' [jq args...] — builds a record from the hook input and appends it.
+log() {
+  local filter=$1; shift
+  jq -c --arg ts "$(now)" --arg session "$session" --arg project "$project" \
+    --slurpfile st "$state" "$@" \
+    "{ts: \$ts, session: \$session, project: \$project} + ($filter)" <<<"$input" >>"$LOG"
+}
+
+# set_state '<jq filter>' [jq args...] — updates the per-session state file under a lock.
+set_state() {
+  local filter=$1; shift
+  (
+    flock 9
+    local tmp
+    tmp=$(mktemp "$STATE_DIR/.tmp.XXXXXX")
+    jq "$@" "$filter" "$state" >"$tmp" && mv "$tmp" "$state"
+  ) 9>"$state.lock"
+}
+
+block() { jq -cn --arg r "$1" '{decision: "block", reason: $r, suppressOriginalPrompt: true}'; }
+
+TIERS='^(haiku|sonnet|opus)$'
+
+case "$event" in
+
+SessionStart)
+  # Stable path for the report skill, whatever version of the plugin is cached.
+  ln -sfn "$ROOT/bin" "$DATA/bin"
+  find "$STATE_DIR" -maxdepth 1 -name '*.json' -mtime +7 -delete 2>/dev/null || true
+  find "$STATE_DIR" -maxdepth 1 -name '*.lock' -mtime +7 -delete 2>/dev/null || true
+  cat "$ROOT/routing.md"
+  ;;
+
+UserPromptSubmit)
+  prompt=$(field .prompt)
+  case "$prompt" in /rate* | /model-decider:rate*) exit 0 ;; esac
+  keep_override=false
+  [[ "$prompt" =~ ^/(model-decider:)?tier[[:space:]] ]] && keep_override=true
+  set_state '.prompt = ($p[0:200]) | .prompt_id = $pid
+             | .override = (if $keep then .override else null end)' \
+    --arg p "$prompt" --arg pid "$(field .prompt_id)" --argjson keep "$keep_override"
+  ;;
+
+UserPromptExpansion)
+  name=$(field .command_name)
+  args=$(field .command_args)
+  case "$name" in
+  tier | *:tier)
+    tier=${args%% *}
+    if [[ ! "$tier" =~ $TIERS ]]; then
+      block "Usage: /tier <haiku|sonnet|opus> <request>"
+      exit 0
+    fi
+    set_state '.override = $t' --arg t "$tier"
+    log '{event: "override", tier: $t, prompt: ($a[0:200])}' --arg t "$tier" --arg a "$args"
+    ;;
+  rate | *:rate)
+    last=$(jq -c '.last_pick // empty' "$state")
+    if [ -z "$last" ]; then
+      block "No pick to rate in this session yet."
+      exit 0
+    fi
+    read -r verdict should_be _ <<<"$args"
+    if [ "$verdict" = ok ]; then
+      should_be=""
+    elif [ "$verdict" = should-be ] && [[ "${should_be:-}" =~ $TIERS ]]; then
+      # Naming the tier that was picked means the pick was right.
+      if [ "$should_be" = "$(jq -r .tier <<<"$last")" ]; then verdict=ok should_be=""; fi
+    else
+      block "Usage: /rate ok   or   /rate should-be <haiku|sonnet|opus>"
+      exit 0
+    fi
+    log '{event: "rate", pick_id: $last.id, picked: $last.tier, verdict: $v,
+          should_be: (if $sb == "" then null else $sb end)}' \
+      --argjson last "$last" --arg v "$verdict" --arg sb "${should_be:-}"
+    block "$(jq -r --arg v "$verdict" --arg sb "${should_be:-}" \
+      '"Rated \(.tier) pick \"\(.desc)\": \(if $v == "ok" then "ok" else "should be \($sb)" end)"' <<<"$last")"
+    ;;
+  esac
+  ;;
+
+PreToolUse)
+  # Only the main session's picks; nested agents are not routing decisions.
+  [ -n "$(field .agent_id)" ] && exit 0
+  log '(.tool_input.description // "") as $d
+       | (.tool_input.subagent_type // "general-purpose") as $agent
+       | ($d | capture("^\\s*\\[(?<r>[^\\]]+)\\]").r? // null) as $reason
+       | {event: "pick", id: .tool_use_id, prompt_id: ($st[0].prompt_id // null),
+          tier: (.tool_input.model
+                 // (if ($agent | test("^model-decider:(haiku|sonnet)$"))
+                     then ($agent | sub("^model-decider:"; "")) else "other" end)),
+          agent: $agent, model: null, reason: $reason,
+          escalate_from: ($reason // "" | capture("^escalate from (?<t>haiku|sonnet|opus)").t? // null),
+          override: ($st[0].override // null), desc: $d,
+          prompt: ($st[0].prompt // null)}'
+  pick=$(tail -n 1 "$LOG")
+  set_state '.last_pick = {id: $p.id, tier: $p.tier, desc: $p.desc}' --argjson p "$pick"
+  ;;
+
+PostToolUse)
+  [ -n "$(field .agent_id)" ] && exit 0
+  log '{event: "resolved", id: .tool_use_id,
+        model: (.tool_response | if type == "object" then .resolvedModel // null else null end),
+        agent_id: (.tool_response | if type == "object" then .agentId // null else null end)}'
+  ;;
+
+Stop)
+  pid=$(field .prompt_id)
+  tp=$(field .transcript_path)
+  tp=${tp/#\~/$HOME}
+  # One record per prompt, even if Stop fires again (stop-hook continuations).
+  if [ -n "$pid" ] && [ "$(jq -r '.stopped // ""' "$state")" = "$pid" ]; then exit 0; fi
+  [ -f "$tp" ] || exit 0
+
+  # Read only the current turn: from the user message with this prompt_id onward.
+  start=""
+  [ -n "$pid" ] && start=$(grep -n -m1 -F "\"promptId\":\"$pid\"" "$tp" | cut -d: -f1 || true)
+  # Fallback when the prompt isn't found: the last 2000 lines, cut at the last typed user message.
+  if [ -z "$start" ]; then
+    turn() { tail -n 2000 "$tp"; }
+  else
+    turn() { tail -n "+$start" "$tp"; }
+  fi
+  stats=$(turn | jq -sc --argjson found "$([ -n "$start" ] && echo true || echo false)" '
+    map(select(.isSidechain != true))
+    | . as $all
+    | (if $found then 0
+       else [range(length)] | map(select($all[.].type == "user" and ($all[.].message.content | type) == "string")) | last // 0
+       end) as $i
+    | $all[$i:]
+    | map(select(.type == "assistant")) as $as
+    | [$as[] | .message.content[]? | select(.type == "tool_use") | .name] as $tools
+    | ([$tools | indices("Agent")[]] | last) as $lastAgent
+    | {tool_calls: ($tools | length),
+       delegations: ($tools | map(select(. == "Agent")) | length),
+       tools_after_last_agent: (if $lastAgent == null then 0 else ($tools | length) - $lastAgent - 1 end),
+       output_tokens: ($as | unique_by(.message.id) | map(.message.usage.output_tokens // 0) | add // 0),
+       main_model: ($as | map(.message.model) | map(select(. != null and . != "<synthetic>")) | last // null)}')
+
+  id=${pid:-turn-$(date +%s%N)}
+  log '{event: "turn", id: $id,
+        prompt: (if $st[0].prompt_id == $id then $st[0].prompt else null end),
+        override: ($st[0].override // null)} + $s
+       + {suspected_escalation: ($s.delegations > 0 and $s.tools_after_last_agent > 5)}' \
+    --arg id "$id" --argjson s "$stats"
+  if [ "$(jq -r .delegations <<<"$stats")" = 0 ]; then
+    log '{event: "pick", id: $id, prompt_id: $id, tier: "opus", agent: "main",
+          model: $s.main_model, reason: null, escalate_from: null,
+          override: ($st[0].override // null), desc: null,
+          prompt: (if $st[0].prompt_id == $id then $st[0].prompt else null end),
+          tool_calls: $s.tool_calls, output_tokens: $s.output_tokens}' \
+      --arg id "$id" --argjson s "$stats"
+    set_state '.last_pick = {id: $id, tier: "opus", desc: (.prompt // "main session turn")}' --arg id "$id"
+  fi
+  set_state '.stopped = $id | .override = null' --arg id "$id"
+  ;;
+
+esac
+exit 0
