@@ -1,0 +1,12 @@
+{
+  "claude": {
+    "fast": {"model": "haiku", "agent": "model-decider:haiku"},
+    "balanced": {"model": "sonnet", "agent": "model-decider:sonnet"},
+    "deep": {"model": "opus", "agent": "model-decider:opus"}
+  },
+  "codex": {
+    "fast": {"model": "gpt-6-luna", "reasoning_effort": "medium"},
+    "balanced": {"model": "gpt-6.1-sol", "reasoning_effort": "medium"},
+    "deep": {"model": "gpt-6-astra", "reasoning_effort": "medium"}
+  }
+}

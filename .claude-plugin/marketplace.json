@@ -3,12 +3,12 @@
   "owner": {
     "name": "Andre Kristensen"
   },
-  "description": "Personal Claude Code skills and plugins.",
+  "description": "Personal Claude Code and Codex skills and plugins.",
   "plugins": [
     {
       "name": "model-decider",
       "source": "./plugins/model-decider",
-      "description": "Picks Haiku, Sonnet or Opus for each piece of work and logs every pick so you can check the picker."
+      "description": "Routes fast, balanced and deep work across Claude Code and Codex and records usage for review."
     }
   ]
 }

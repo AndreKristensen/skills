@@ -1,0 +1,9 @@
+# Python-generated files
+__pycache__/
+*.py[cod]
+
+# Local secrets. Keep example configuration files available to commit.
+.env
+.env.*
+!.env.example
+!.env.*.example

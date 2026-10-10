@@ -1,0 +1,7 @@
+{
+  "name": "model-decider",
+  "version": "0.3.1",
+  "description": "Route work to Luna, Sol or Astra and review usage across Codex and Claude Code.",
+  "skills": "./skills/",
+  "hooks": "./hooks/codex.json"
+}

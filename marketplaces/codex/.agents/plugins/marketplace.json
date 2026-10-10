@@ -1,0 +1,12 @@
+{
+  "name": "ask-skills",
+  "interface": {"displayName": "Ask skills"},
+  "plugins": [
+    {
+      "name": "model-decider",
+      "source": {"source": "local", "path": "./model-decider"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_INSTALL"},
+      "category": "Productivity"
+    }
+  ]
+}

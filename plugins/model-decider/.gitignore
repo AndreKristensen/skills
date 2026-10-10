@@ -1,0 +1,4 @@
+# Runtime data if MODEL_DECIDER_HOME points at this plugin directory.
+/log.jsonl
+/state/
+/transaction.lock

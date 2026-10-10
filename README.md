@@ -1,75 +1,142 @@
 # skills
 
-Claude Code skills and plugins.
+Skills and plugins for Claude Code and Codex.
 
-## model-decider plugin
+## model-decider 0.3.1
 
-Picks a model tier for each piece of work and logs every pick, so you can check whether the picker chooses well.
+Keep your main conversation on Sonnet or GPT-6.1 Sol. The picker delegates substantial
+simple tasks to fast and complex work to deep. Tiny questions stay local because
+delegation has overhead.
 
-| Tier | Runs as | Used for |
-|------|---------|----------|
-| haiku | `model-decider:haiku` subagent | Work where the answer is found, not reasoned out: searches, reading files or docs, running a command and summarizing output, mechanical edits |
-| sonnet | `model-decider:sonnet` subagent | Clear work that needs judgment: a well-specified feature, tests, a bug with a known cause, refactors within a few files |
-| opus | the main session | Uncertainty or tradeoffs: unclear requirements, design, debugging an unknown cause, changes across many files |
+| Tier | Claude Code | Codex | Work |
+|---|---|---|---|
+| fast | Haiku | GPT-6 Luna, medium effort | Searches, extraction, summaries, mechanical edits |
+| balanced | Sonnet | GPT-6.1 Sol, medium effort | Most coding, tests, ordinary debugging |
+| deep | Opus | GPT-6 Astra, medium effort | Architecture, uncertain debugging, demanding work |
 
-Run your main session on Opus. The main session is the picker: it delegates Haiku and Sonnet work to the subagents and keeps Opus work itself. The rules it follows are in [routing.md](plugins/model-decider/routing.md).
+These pairs match routing roles, not guaranteed performance or subscription usage.
+Model choices live in [models.json](plugins/model-decider/models.json) and the shared
+policy in [routing.md](plugins/model-decider/routing.md). Claude uses current aliases;
+Codex uses explicit IDs. Named Claude agent profiles must match the configured aliases.
+
+The hook allows one automatic deep subagent launch per user request, including
+parallel work. Explicit deep overrides bypass that limit. The guard covers intercepted
+Agent/spawn_agent launches, not external processes, every integration or subsequent
+messages to an existing agent. With untrusted or disabled hooks, routing is advisory
+and automatic logging is inactive.
 
 ### Requirements
 
-- `jq`, `flock` and GNU `date`. These are standard on Linux. On macOS, install `jq`, `flock` and `coreutils` with Homebrew.
+Python 3.9 or newer, Bash, and a local Linux or macOS runtime. The handler uses the
+Python standard library and file locks. Windows and remote/web runtimes are not
+verified. The plugin needs no jq, GNU date, API key or separate API billing.
 
-### Install
+### Claude Code installation
 
-Add this repo as a marketplace:
+Use the clone's path for unpushed changes:
 
-```bash
-claude plugin marketplace add AndreKristensen/skills
-```
-
-From a local clone, pass the path to the clone instead of `AndreKristensen/skills`.
-
-Then install the plugin:
-
-```bash
+~~~bash
+claude plugin marketplace add /home/ask/dev/skills
 claude plugin install model-decider@ask-skills
-```
+~~~
 
-Restart Claude Code. The routing rules load when a session starts.
+For an existing installation:
+
+~~~bash
+claude plugin marketplace update ask-skills
+claude plugin update model-decider@ask-skills
+~~~
+
+Start a new session with Sonnet. The plugin recommends the main model but leaves
+selection to you. Once published, replace the local path with AndreKristensen/skills
+for installation on other machines.
+
+### Codex installation
+
+Use the native Codex catalog under marketplaces/codex. It points to the same plugin
+through a relative symlink, so there is only one implementation to maintain. Its
+Codex manifest selects a separate hook configuration. The separate catalog avoids
+writing inside an existing protected .agents directory in the repository root.
+
+~~~bash
+codex plugin marketplace add /home/ask/dev/skills/marketplaces/codex
+codex plugin add model-decider@ask-skills
+~~~
+
+Re-add the plugin from the local marketplace after changing its version. For Git
+marketplaces, run codex plugin marketplace upgrade ask-skills first. You can also
+install through the desktop app's Plugins directory.
+
+If ask-skills was registered at the clone root in Codex, remove that source
+registration before adding the native path. This does not change the Claude source:
+
+~~~bash
+codex plugin marketplace remove ask-skills
+~~~
+
+Start a new session on GPT-6.1 Sol with medium reasoning. Review and trust changed
+hooks through /hooks where that UI is available. Installation alone does not trust
+hooks. Use normal trust review rather than bypass flags.
+
+See [Codex packaging](https://developers.openai.com/plugins/build/plugins) and
+[hook trust](https://learn.chatgpt.com/docs/hooks).
 
 ### Usage
 
-Work as normal. Each delegation description starts with a reason tag such as `[simple lookup]`, which shows why the tier was picked.
+| Command | Behavior |
+|---|---|
+| /tier fast <request> | Force a fast model for this request |
+| /tier balanced <request> | Force balanced |
+| /tier deep <request> | Explicit deep override, exempt from the automatic limit |
+| /tier balanced high <request> | Codex effort override if the host supports it |
+| /rate ok | Rate the latest pick in this session |
+| /rate should-be fast | Record a different preferred tier |
+| /decider-report 7d | Review the last seven days; 7d is the default |
 
-| Command | What it does |
-|---------|--------------|
-| `/tier <haiku\|sonnet\|opus> <request>` | Forces a tier for one request and logs it as an override |
-| `/rate ok` | Marks the last pick in this session as right |
-| `/rate should-be <tier>` | Marks the last pick as wrong and records the tier it should have been. A hook handles it, so it uses no tokens |
-| `/decider-report [7d\|30d]` | Shows the tier split per project, override and escalation rates, the most suspicious picks, and suggested changes to `routing.md`. The default period is 7 days |
+Use the model-decider: prefix if names clash. On Codex use the skill picker or
+$model-decider:tier invocation. haiku/sonnet/opus and luna/sol/astra are tier aliases.
+Raw rating prompts are handled by hooks without a model response. If a host expands
+the skill first, it uses the session helper and costs an ordinary model/tool turn.
+Missing hook context produces an explicit error rather than a fabricated rating.
 
-If another plugin uses the same command names, use the full names: `/model-decider:tier`, `/model-decider:rate` and `/model-decider:decider-report`.
+Unavailable fast models fall back to balanced. Unavailable deep models use balanced
+where feasible and explain the limitation. A failed deep launch consumes the automatic
+allowance. The plugin does not silently select an older model.
 
-### The log
+### Log and report
 
-Every event is appended to `~/.claude/model-decider/log.jsonl`, one JSON object per line:
+Both platforms append to ~/.claude/model-decider/log.jsonl, preserving existing
+Claude history. MODEL_DECIDER_HOME selects another directory. State is isolated by
+platform and session, and new records have a platform and request ID.
 
-| `event` | Written when |
-|---------|--------------|
-| `pick` | The main session delegates, or finishes a turn without delegating (logged as an `opus` pick, with its tool-call count and output tokens) |
-| `resolved` | A subagent starts. Records the exact model ID that ran |
-| `turn` | A turn ends. Records delegations, tool calls, output tokens, and whether the main session did a lot of work after a subagent (a suspected escalation) |
-| `override` | You run `/tier` |
-| `rate` | You run `/rate` |
+The log stores up to 200 characters of prompts and delegation descriptions. It records
+picks, overrides, resolved model IDs when available, failures, fallbacks, blocked launches,
+turn contributions and ratings. Requested models remain separate from confirmed models.
+Unresolved runs appear as unresolved in reports.
 
-The log stores the first 200 characters of each prompt. It stays on your machine.
+Reports include main-session overhead even when work is delegated. Transcript-derived
+usage is best effort and may lag. Absent usage is null. Codex usage can represent only
+the last model request and is labeled accordingly. A completed run does not establish
+passing tests; ratings and review help judge results. Significant main work after a
+subagent is possible rework rather than a confirmed routing mistake.
 
-To set a different log location, use the `MODEL_DECIDER_HOME` environment variable.
+API prices are not used to invent subscription cost per task. Where account tools exist,
+the report skill can show an account-wide allowance snapshot separately. Routing changes
+are suggestions for your review.
 
-### Changing the plugin
+~~~bash
+plugins/model-decider/bin/report 7d
+~~~
 
-1. Edit the files in [plugins/model-decider](plugins/model-decider).
-2. Run the tests: `plugins/model-decider/tests/test.sh`.
-3. Bump `version` in [plugin.json](plugins/model-decider/.claude-plugin/plugin.json).
-4. Run `claude plugin marketplace update ask-skills`.
-5. Run `claude plugin update model-decider@ask-skills`.
-6. Restart Claude Code.
+### Verification and development
+
+~~~bash
+plugins/model-decider/tests/test.sh
+claude plugin validate plugins/model-decider
+claude plugin validate .
+~~~
+
+Tests exercise both adapters, concurrent deep launches, overrides and reset, ratings,
+resolved models, usage, failure fallback and platform isolation. Live checks need host
+authentication and trusted hooks. Bump both manifests together, update the installation,
+and start a new session to load changed rules.

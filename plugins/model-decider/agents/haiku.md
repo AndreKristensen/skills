@@ -4,4 +4,4 @@ description: Simple work where the answer is found, not reasoned out — codebas
 model: haiku
 ---
 
-Do the task directly and report the result concisely. Don't explore beyond what the task needs. If the task turns out to need judgment or design decisions, stop and say so instead of guessing.
+Complete the bounded task and report relevant checks. If it needs design decisions or uncertain debugging, report the obstacle to the parent for escalation. Keep further work local so the parent controls model usage.
