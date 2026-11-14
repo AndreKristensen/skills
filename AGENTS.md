@@ -1,12 +1,12 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents (Claude Code, Codex) when working with code in this repository.
 
 ## What this repo is
 
-A collection of Codex custom skill definitions. Each skill is a Markdown file that Codex loads and executes when a user invokes `/skill-name`.
+A collection of Claude Code custom skill definitions. Each skill is a Markdown file that Claude Code loads and executes when a user invokes `/skill-name`.
 
-Skills live at: `.Codex/skills/<skill-name>/SKILL.md`
+Skills live at: `.claude/skills/<skill-name>/SKILL.md`
 
 ## Skill file format
 
@@ -17,14 +17,14 @@ Every `SKILL.md` starts with YAML frontmatter, followed by freeform Markdown ins
 name: skill-name               # must match the directory name
 description: >
   One or two sentences. This exact text appears in the skill picker
-  and in the system reminder Codex receives.
+  and in the system reminder Claude receives.
 argument-hint: "[optional]"   # shown in the CLI after the skill name
 allowed-tools: [Read, Write, Edit, Bash, WebFetch]  # optional allowlist
 ---
 
 # Skill Title
 
-Step-by-step instructions Codex follows when the skill is invoked.
+Step-by-step instructions Claude follows when the skill is invoked.
 ```
 
 ### Key frontmatter fields
@@ -32,13 +32,13 @@ Step-by-step instructions Codex follows when the skill is invoked.
 | Field | Purpose |
 |-------|---------|
 | `name` | Slug used in `/name` invocation; must match directory name |
-| `description` | Determines when Codex auto-suggests the skill via `TRIGGER when:` patterns |
+| `description` | Determines when Claude auto-suggests the skill via `TRIGGER when:` patterns |
 | `argument-hint` | Displayed hint for optional CLI argument (e.g. `/update-packages minor`) |
 | `allowed-tools` | Restricts which tools the skill can use (omit to allow all) |
 
 ## Writing skill instructions
 
-Skills are imperative Markdown documents — Codex reads and follows them literally. Effective patterns used in this repo:
+Skills are imperative Markdown documents — Claude reads and follows them literally. Effective patterns used in this repo:
 
 - **Step-by-step numbered sections** with explicit commands to run
 - **Edge case tables** at the end for unusual inputs
@@ -48,9 +48,9 @@ Skills are imperative Markdown documents — Codex reads and follows them litera
 
 ## Adding a new skill
 
-1. Create `.Codex/skills/<name>/SKILL.md`
+1. Create `.claude/skills/<name>/SKILL.md`
 2. Write frontmatter with `name`, `description`, and optionally `argument-hint` / `allowed-tools`
-3. Write the body as step-by-step instructions Codex will follow
-4. Test by invoking `/name` in a Codex session in any project
+3. Write the body as step-by-step instructions Claude will follow
+4. Test by invoking `/name` in a Claude Code session in any project
 
 No build step, no install, no tests — the file is the artifact.
