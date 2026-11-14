@@ -45,8 +45,8 @@ npm install --save-dev @ai-hero/sandcastle   # or pnpm add -D / yarn add -D
 ```bash
 npx @ai-hero/sandcastle init \
   --template simple-loop \
-  --agent Codex \
-  --model Codex-opus-4-8 \
+  --agent claude-code \
+  --model claude-opus-4-8 \
   --sandbox docker \
   --issue-tracker github-issues \
   --create-label false \
@@ -112,7 +112,7 @@ A missing label is not an error — `gh` returns `[]` with exit 0 — so the loo
 
 **The verification step.** Replace the template's `npm run typecheck` / `npm run test` with commands that exist. Requiring a test run in a repo with no test runner guarantees failure; conversely, dropping verification entirely lets the agent commit code that doesn't build. Use whatever the repo actually has — `pnpm lint` and `pnpm build` if that's it — and say plainly that both must pass before committing.
 
-**Project-specific rules.** If the repo has an `AGENTS.md` or `AGENTS.md` with load-bearing constraints, restate the critical ones in the prompt rather than assuming the agent reads them. A rule like "this framework version differs from your training data — read the local docs first" is exactly the kind of thing that produces confidently wrong code when skipped.
+**Project-specific rules.** If the repo has an `AGENTS.md` or `CLAUDE.md` with load-bearing constraints, restate the critical ones in the prompt rather than assuming the agent reads them. A rule like "this framework version differs from your training data — read the local docs first" is exactly the kind of thing that produces confidently wrong code when skipped.
 
 ## 5. Ignore the sandbox's droppings
 
@@ -136,7 +136,7 @@ Then confirm the customisations actually landed, rather than trusting the build 
 
 ```bash
 docker run --rm --entrypoint sh <image> -c \
-  'node --version; pnpm --version; git --version; gh --version | head -1; Codex --version; id -un'
+  'node --version; pnpm --version; git --version; gh --version | head -1; claude --version; id -un'
 ```
 
 Check the package manager resolves, and that the container user's uid/gid match the host user — a mismatch means bind-mounted files come out owned by the wrong user.
@@ -193,5 +193,5 @@ some-command > run.log 2>&1; echo "EXIT=$?"
 
 ## Reference files
 
-- `references/secrets.md` — the forwarding table, `.env` vs varlock/Doppler, exact `env` syntax, and which quota the Codex token draws on. **Read before step 3.**
+- `references/secrets.md` — the forwarding table, `.env` vs varlock/Doppler, exact `env` syntax, and which quota the Claude token draws on. **Read before step 3.**
 - `references/troubleshooting.md` — failure signatures mapped to causes and fixes. Read when a run fails.
